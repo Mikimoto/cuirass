@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"get_price","args":{"symbol":"2330"}},"thoughtSignature":"SIG-abc"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":5}}
+

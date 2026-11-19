@@ -1,0 +1,28 @@
+[tools]
+go = "1.27.4"
+
+[tasks.build]
+description = "編譯 + go vet"
+run = "go build ./... && go vet -tags test ./..."
+
+[tasks.test]
+description = "gofmt 檢查 → race 測試 → 不開 race 的覆蓋率測試 → 覆蓋率下限"
+run = [
+  # 只看 git 管的檔(含未追蹤、不含 ignore):gofmt -l . 會走進 .worktrees/
+  'files="$(gofmt -l $(git ls-files -co --exclude-standard "*.go"))"; [ -z "$files" ] || { echo "gofmt 沒過:"; echo "$files"; exit 1; }',
+  "go test -tags test -race -count=1 ./...",
+  "go test -tags test -count=1 -coverpkg=./... -coverprofile=coverage.out ./...",
+  "scripts/coverage-floor.sh coverage.out",
+]
+
+[tasks."test:release"]
+description = "在暫存 repo 驗證 release 的檢查(不碰真正的遠端)"
+run = "scripts/release_test.sh"
+
+[tasks.vuln]
+description = "Go 弱點掃描(需要網路;不進 go.mod)"
+run = "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."
+
+[tasks.release]
+description = "發版:mise run release <vX.Y.Z> [--yes];預設只印出要做的事"
+run = "scripts/release.sh"

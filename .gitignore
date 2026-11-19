@@ -1,0 +1,14 @@
+*.log
+.DS_Store
+
+# 秘鑰:env 檔絕不進版控
+.env
+.env.*
+
+# 覆蓋率產出物(mise run test)
+coverage.out
+.worktrees/
+.worktree/
+
+# superpowers 的計畫與設計稿只留本機
+docs/superpowers/

@@ -1,0 +1,6 @@
+# 個人 repo:合併不需要他人 approve。多人協作時調高。
+approvals = 0
+
+[[tests]]
+glob = "**/*_test.go"
+regex = '^func (?:\([^)]*\) )?(Test\w+)'
