@@ -1,5 +1,7 @@
 # cuirass
 
+[English](#english) | 中文
+
 讓 AI agent 能動手做事、又不會闖禍的 Go framework。
 
 安全靠開發者自己加,忘了加或加錯就出事。cuirass 把防護做成 agent 迴圈裡固定的步驟(對照 OWASP LLM Top 10 2025),核心防護沒有開關可以關。你只寫工具與規則,其他交給 framework。
@@ -20,6 +22,39 @@
 - 出事查得到:設了稽核,工具呼叫、被規則或上限擋下、連線被擋、輸出被攔,都會寫一筆。
 
 還沒做的:沙箱(讀寫檔案、執行指令的工具現在一律拒絕註冊)與 session 存檔。細節看下方「七層對照」。想直接跑看看,跳到下方「最小範例」。
+
+## English
+
+A Go framework for AI agents that can take real actions without causing trouble.
+
+Security usually depends on each developer adding it by hand, and one missed or wrong check is enough. cuirass builds guardrails into fixed steps of the agent loop, designed against the OWASP LLM Top 10 (2025). The core guardrails have no off switch. You write tools and rules; the framework does the rest.
+
+**For developers**
+
+- Less code to write: the agent loop, tool calls, and streaming are done for you.
+- Switch models by changing the provider config only, without touching tools or rules: Anthropic, OpenAI, and Google APIs, local models through Ollama, or Apple Foundation Models through `fm serve` (both via the OpenAI-compatible API).
+- Mistakes fail fast: an open tool schema, or an allowlisted tool that isn't registered, makes `New` return an error instead of failing in production.
+- Few dependencies: the standard library and `golang.org/x/text`.
+
+**For your users**
+
+- The agent only does what you allow: only allowlisted tools, arguments must match the schema, and calls are capped per turn and per session.
+- Network allowlist: tools connect through the framework's `tc.HTTP`, which only reaches allowlisted HTTPS hosts and does not follow redirects. A tool that uses `net/http` directly is not blocked yet; that needs the sandbox.
+- Secrets are masked first: tool results are masked before the model sees them; a final answer that copies the system prompt is blocked entirely; sensitive numbers can be masked before a request goes to a cloud model.
+- Numbers can be checked: with `NumberVerifier`, numbers in an answer that don't match tool data are flagged.
+- Traceable: with an audit sink, tool calls, rule or limit blocks, blocked connections, and blocked output are each logged.
+
+Not done yet: the sandbox (tools that read/write files or run commands are refused at registration) and session persistence.
+
+**Install**
+
+```sh
+go get github.com/Mikimoto/cuirass
+```
+
+Needs Go 1.27 or later. Import only the root package `github.com/Mikimoto/cuirass`.
+
+The rest of this README is in Traditional Chinese, but the code speaks for itself. Good places to start: the number-checking example right below, 最小範例 (minimal example), 接真的模型 (connecting real models), 自定義工具 (custom tools), and 七層對照 (the seven layers mapped to OWASP). Runnable examples are in `example/`.
 
 ## 看一個例子:數字核對
 
