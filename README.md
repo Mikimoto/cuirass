@@ -172,7 +172,7 @@ fmt.Println("額度已用:", agent.Budget().Session)
 // 額度已用: 1
 ```
 
-接真的模型:
+接真的模型(其他廠商與本機模型見下一節「接真的模型」):
 
 ```go
 audit := cuirass.NewFileAudit(".agent-audit", func(msg string) { log.Println(msg) })
@@ -226,6 +226,184 @@ err = agent.Prompt(ctx, "2330 現在多少?")
 - `Abort()` 只中止目前這輪,排隊中的照跑,之後可以繼續用。`Prompt` 的 `ctx` 取消也只中止那一輪。還在排隊(沒輪到)時 `ctx` 被取消,那個 `Prompt` 直接回 `ctx.Err()`,不跑也不留紀錄;排隊中 `Dispose()` 則回「agent 已停用」。
 - `SetProvider()` 在輪與輪之間才生效:輪中呼叫時,這輪與之前已排隊的輪仍用舊的,`Provider()` 也回舊的。
 - `Provider()` 只回 `Name`、`Model`、`Privacy`、`ContextWindow`、`MaxTokens`,不交出 provider 本身。`Messages()` 回深複本。
+
+## 接真的模型
+
+`CreateProvider` 用 `API` 決定走哪一種協定。支援三種,涵蓋下面五類模型:
+
+| 模型 | `API` | `BaseURL` | 金鑰 |
+|---|---|---|---|
+| Anthropic Claude | `anthropic-messages` | `https://api.anthropic.com` | `x-api-key` header |
+| OpenAI | `openai-completions` | `https://api.openai.com/v1` | `Authorization: Bearer` |
+| Google Gemini | `google-generative-ai` | `https://generativelanguage.googleapis.com` | `x-goog-api-key` header |
+| Ollama(本機) | `openai-completions` | `http://localhost:11434/v1` | 不需要 |
+| Apple Foundation Models(`fm serve`) | `openai-completions` + `Compat.AppleFM` | `http://127.0.0.1:1976/v1` | 不需要 |
+
+`BaseURL` 只寫到上表那一層,framework 會自己接路徑:Anthropic 接 `/v1/messages`,OpenAI 相容接 `/chat/completions`,Gemini 接 `/v1beta/models/<Model>:streamGenerateContent`。所以 OpenAI 相容的 `BaseURL` 要包含 `/v1`。三種都走串流。
+
+```go
+audit := cuirass.NewFileAudit(".agent-audit", func(msg string) { log.Println(msg) })
+deps := cuirass.CreateDeps{Audit: audit}
+
+// Anthropic Claude
+claude, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "claude", API: "anthropic-messages", Model: "claude-sonnet-4-5",
+	BaseURL: "https://api.anthropic.com", APIKey: os.Getenv("ANTHROPIC_API_KEY"),
+}, deps)
+
+// OpenAI(其他 OpenAI 相容的雲端服務也一樣,換 BaseURL 就好)
+gpt, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "gpt", API: "openai-completions", Model: "gpt-4.1",
+	BaseURL: "https://api.openai.com/v1", APIKey: os.Getenv("OPENAI_API_KEY"),
+	// 新模型不收 max_tokens 時改用 max_completion_tokens
+	Compat: cuirass.Compat{MaxTokensField: "max_completion_tokens"},
+}, deps)
+
+// Google Gemini
+gemini, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "gemini", API: "google-generative-ai", Model: "gemini-2.5-flash",
+	BaseURL: "https://generativelanguage.googleapis.com", APIKey: os.Getenv("GEMINI_API_KEY"),
+}, deps)
+
+// Ollama:先 `ollama pull llama3.1`,`ollama serve` 預設聽 11434
+local := cuirass.Local
+ollama, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "ollama", API: "openai-completions", Model: "llama3.1",
+	BaseURL: "http://localhost:11434/v1",
+	Privacy: &local, // 明填 local;不是 loopback 位址時 CreateProvider 會回錯
+}, deps)
+
+// Apple Foundation Models:先跑 `fm serve`,預設聽 127.0.0.1:1976(`--port` 可改)
+// Model 填 "system"(在本機跑)
+fm, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "fm", API: "openai-completions", Model: "system",
+	BaseURL: "http://127.0.0.1:1976/v1", Privacy: &local,
+	Compat: cuirass.Compat{AppleFM: true}, // 送出前把請求轉成 fm serve 收得下的格式
+}, deps)
+
+// Model 填 "pcc" 時跑在 Apple 的 Private Cloud Compute,資料會離開本機。
+// 位址雖然是 loopback,要明填 remote,送出前才會遮蔽
+remote := cuirass.Remote
+pcc, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "pcc", API: "openai-completions", Model: "pcc",
+	BaseURL: "http://127.0.0.1:1976/v1", Privacy: &remote,
+	Compat: cuirass.Compat{AppleFM: true},
+}, deps)
+```
+
+每個 `err` 都要檢查,上面為了短省略了。
+
+幾個要注意的地方:
+
+- **金鑰不要寫死**:用環境變數或 secret manager。provider 的錯誤訊息會先把這把金鑰遮掉才回傳。
+- **本機模型是 `local`,雲端是 `remote`**:沒填 `Privacy` 時,loopback 位址(localhost、127.x、::1)而且沒有自訂 `Headers` 的算 `local`,其他一律 `remote`。有設 `Masking` 時,`local` 輪的敏感數字送去 `remote` provider 之前會遮掉。明填 `Privacy: &local` 可以多一道保險:位址不是 loopback 就直接回錯,撥號時也只准連 loopback IP。反過來,本機轉發到雲端的服務(例如 `fm serve` 的 `pcc` 模型)位址是 loopback,要明填 `Privacy: &remote`。
+- **同時接好幾家**:全部放進 `Providers`,`InitialProvider` 指定一開始用哪個(空字串 = 第一個),之後用 `agent.SetProvider("<Name>")` 切換,在輪與輪之間生效;名字找不到時回 `false`。
+
+```go
+agent, err := cuirass.New(cuirass.AgentOptions{
+	Providers:       []*cuirass.Provider{ollama, claude},
+	InitialProvider: "ollama", // 平常用本機模型
+	System:          func() string { return "你是天氣助理。" },
+})
+// 需要比較強的模型時
+agent.SetProvider("claude")
+```
+
+## 自定義工具
+
+工具是 agent 能做的事。每個工具是一個 `cuirass.ToolDef`,放進 `AgentOptions.Tools`:
+
+| 欄位 | 說明 |
+|---|---|
+| `Name` | 模型呼叫時用的名字,符合 `^[a-zA-Z0-9_-]{1,64}$`,不能重複 |
+| `Description` | 告訴模型這個工具做什麼、什麼時候用 |
+| `Parameters` | 參數的 JSON Schema。根層必須是 `"type": "object"` 加 `"additionalProperties": false` |
+| `Effects` | 工具會碰到什麼:`EffectsNone`(只在記憶體裡算)或 `EffectsNetwork`(會連網)。讀寫檔案、執行指令的工具(`fs`/`exec`)要等沙箱完成,現在註冊會失敗 |
+| `Execute` | 真正做事的函式 |
+| `AuditArgs` | 哪些參數可以寫進稽核紀錄;沒列的不記 |
+
+下面是一個查天氣的工具,也示範怎麼用規則和次數上限管住它:
+
+```go
+getWeather := cuirass.ToolDef{
+	Name:        "get_weather",
+	Description: "查城市目前的氣溫與天氣",
+	Parameters: cuirass.Schema{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"city": map[string]any{"type": "string", "minLength": 1, "maxLength": 40},
+		},
+		"required": []string{"city"},
+	},
+	Effects:   cuirass.EffectsNetwork,
+	AuditArgs: []string{"city"},
+	Execute: func(ctx context.Context, args map[string]any, tc cuirass.ToolCtx) (cuirass.ToolOutput, error) {
+		city := args["city"].(string) // schema 已檢查過型別,這裡可以直接轉
+		// 連網一律用 tc.HTTP:只連得到 Policy.Hosts 列的 https 主機
+		r, err := tc.HTTP(ctx, "https://api.example.com/weather?city="+url.QueryEscape(city), cuirass.HTTPOptions{})
+		if err != nil {
+			return cuirass.ToolOutput{}, err
+		}
+		if r.Status != 200 {
+			// 模型能自己修正的錯誤(例如城市名打錯)回 IsError,讓它看到原因再試
+			return cuirass.ToolOutput{Content: "查不到這個城市", IsError: true}, nil
+		}
+		var w struct {
+			TempC float64 `json:"temp_c"`
+			Desc  string  `json:"desc"`
+		}
+		if err := json.Unmarshal([]byte(r.Body), &w); err != nil {
+			return cuirass.ToolOutput{}, err
+		}
+		return cuirass.ToolOutput{
+			Content: w,                                 // 給模型看的內容
+			Details: map[string]any{"temp_c": w.TempC}, // 數字核對只認這裡的數字
+		}, nil
+	},
+}
+
+perTurn := 5
+agent, err := cuirass.New(cuirass.AgentOptions{
+	Providers: []*cuirass.Provider{claude},
+	System:    func() string { return "你是天氣助理。" },
+	Tools:     []cuirass.ToolDef{getWeather},
+	Verifiers: []cuirass.Verifier{cuirass.NumberVerifier(0)},
+	Policy: cuirass.PolicyOptions{
+		Tools: []string{"get_weather"},     // 開放給模型的工具;nil = 全部已註冊的
+		Hosts: []string{"api.example.com"}, // tc.HTTP 能連的主機
+		Limits: cuirass.LimitsOptions{
+			PerTurn: &perTurn,                         // 每輪最多呼叫 5 次工具
+			PerTool: map[string]int{"get_weather": 3}, // get_weather 每輪最多 3 次
+		},
+		Rules: []cuirass.ToolRule{
+			// 第一個回 block=true 的規則擋下;規則 panic 也算擋下
+			func(name string, args map[string]any, _ cuirass.RuleCtx) (string, bool) {
+				if name == "get_weather" && args["city"] == "測試" {
+					return "不查測試城市", true
+				}
+				return "", false
+			},
+		},
+	},
+	Audit: audit,
+})
+```
+
+framework 在工具前後替你做的事:
+
+- **呼叫前**:工具不在 `Policy.Tools`、參數不符 schema、被規則擋下,工具都不會執行,模型看到的是被擋的原因。超過次數上限時也不會執行,而且這輪直接以 `cap` 結束。
+- **呼叫後**:結果先遮掉機密、再依 `ToolResultBytes` 截斷,最後包成不可信資料才交給模型。所以工具回傳的內容就算夾帶「忽略前面的指示」這類文字,模型也知道那只是資料。
+- **出錯時**:`Execute` 回 Go `error` 或 panic,這次呼叫算失敗,模型看到遮蔽過的錯誤訊息。模型能自己修正的錯誤,建議回 `IsError: true` 並寫清楚原因。
+
+寫工具時的原則:
+
+- `Parameters` 只用支援的關鍵字:`type`、`properties`、`required`、`additionalProperties`、`items`、`enum`、`const`、`anyOf`、`minimum`、`maximum`、`exclusiveMinimum`、`minLength`、`maxLength`、`minItems`、`maxItems`、`pattern`、`description`、`title`、`default`。用了其他的(例如 `$ref`、`oneOf`、`format`),`New` 會回 error。
+- 參數盡量收窄:能用 `enum` 就不要開放任意字串,字串加 `maxLength`,數字加 `minimum`/`maximum`。
+- `Effects` 照實宣告。會連網的工具不要標成 `EffectsNone`,讀寫檔案的工具不要為了過關改標別的。
+- 不要在工具裡自己用 `net/http` 連網,那樣白名單擋不到。
+
+完整的多工具範例看 `example/codingagent`。
 
 ## 併發與時序契約(寫 hook 前必讀)
 
