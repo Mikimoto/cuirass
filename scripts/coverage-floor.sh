@@ -6,7 +6,7 @@ set -euo pipefail
 profile="${1:-coverage.out}"
 [ -f "$profile" ] || { echo "找不到 $profile" >&2; exit 1; }
 
-floors='github.com/Mikimoto/cuirass 99;github.com/Mikimoto/cuirass/internal/entity 96;github.com/Mikimoto/cuirass/internal/repository 93;github.com/Mikimoto/cuirass/internal/repository/providers 99;github.com/Mikimoto/cuirass/internal/repository/providers/anthropic 88;github.com/Mikimoto/cuirass/internal/repository/providers/google 89;github.com/Mikimoto/cuirass/internal/repository/providers/openai 90;github.com/Mikimoto/cuirass/internal/repository/providers/stub 99;github.com/Mikimoto/cuirass/internal/usecase 94;github.com/Mikimoto/cuirass/example/codingagent 86;TOTAL 80'
+floors='github.com/Mikimoto/cuirass 99;github.com/Mikimoto/cuirass/internal/entity 96;github.com/Mikimoto/cuirass/internal/repository 93;github.com/Mikimoto/cuirass/internal/repository/providers 99;github.com/Mikimoto/cuirass/internal/repository/providers/anthropic 88;github.com/Mikimoto/cuirass/internal/repository/providers/google 89;github.com/Mikimoto/cuirass/internal/repository/providers/openai 90;github.com/Mikimoto/cuirass/internal/repository/providers/stub 99;github.com/Mikimoto/cuirass/internal/usecase 94;github.com/Mikimoto/cuirass/example/codingagent 86;github.com/Mikimoto/cuirass/example/refundagent 91;TOTAL 80'
 
 # 多個測試執行檔會重複同一個區塊:以 檔案:位置 去重,任一次有執行就算覆蓋。
 awk -v floors="$floors" '

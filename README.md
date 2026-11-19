@@ -139,7 +139,7 @@ go get github.com/Mikimoto/cuirass@vX.Y.Z
 |---|---|
 | `tests/` | 使用者角度的測試,只能用公開 API(`layers_test.go` 會擋 import internal);掃原始碼的守門測試(分層、對外連線、公開 API 形狀) |
 | `tests/internal/<路徑>` | 需要 internal 的外部測試,路徑對應原始碼;`tests/internal/root` 是根套件,透過 `testing.go`(只在 test tag 建置存在)拿未匯出成員 |
-| `example/` | 教學範例,也是測試:`ExampleNew` 與自己寫一個 coding agent(`example/codingagent`) |
+| `example/` | 教學範例,也是測試:`ExampleNew`、自己寫一個 coding agent(`example/codingagent`)、會動手退款但有煞車的客服(`example/refundagent`) |
 
 ### 行為契約(IMP)
 
@@ -438,7 +438,7 @@ framework 在工具前後替你做的事:
 - `Effects` 照實宣告。會連網的工具不要標成 `EffectsNone`,讀寫檔案的工具不要為了過關改標別的。
 - 不要在工具裡自己用 `net/http` 連網,那樣白名單擋不到。
 
-完整的多工具範例看 `example/codingagent`。
+完整的多工具範例看 `example/codingagent`;用規則、次數上限與稽核管住會動到錢的工具,看 `example/refundagent`。
 
 ## 併發與時序契約(寫 hook 前必讀)
 
