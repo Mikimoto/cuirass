@@ -20,5 +20,5 @@ Go agent framework，防護層是 agent 迴圈裡固定的步驟，使用者關�
 ## 分支與發版
 
 - git-flow：feature 從 `dev` 開，用 PR 合回 `dev`；release 從 `dev` 開，合進 `main` 並打 tag。
-- repo 是 private 且用 GitHub Free，不能設自動 Copilot review 的 ruleset，收尾時跳過 Copilot review。
+- repo 是 public。ruleset `copilot-review-dev` 讓 Copilot 自動 review 進 `dev` 的 PR，收尾時要跑 Copilot review；`protect-main-dev` 禁止刪除與 force push `main`、`dev`。
 - 版本 tag 用 `vX.Y.Z`。
