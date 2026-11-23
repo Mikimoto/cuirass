@@ -309,3 +309,34 @@ func TestLocalDialsLoopbackOnly(t *testing.T) {
 		t.Fatalf("%#v", done)
 	}
 }
+
+func TestOpenAIStreamError(t *testing.T) {
+	ctx := context.Background()
+	text := `data: {"choices":[{"index":0,"delta":{"content":"半截"},"finish_reason":null}]}` + "\n\n"
+	cases := map[string]struct{ chunk, want string }{
+		"頂層 error 加 finish_reason error": {
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"error"}],"error":{"message":"insufficient memory sk-abcdefghijklmnopqrstuvwx"}}`,
+			"insufficient memory",
+		},
+		"只有頂層 error,沒有 choices":  {`data: {"error":{"message":"boom"}}`, "boom"},
+		"只有 finish_reason error": {`data: {"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}`, "error"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			client, _ := capture(t, sse(text+c.chunk+"\n\ndata: [DONE]\n\n"))
+			m := done(t, run(ctx, cfg(repository.Compat{}), req(), client))
+			eq(t, m.StopReason, "error")
+			eq(t, m.Content, []entity.Part{})
+			if !strings.Contains(m.ErrorMessage, c.want) || strings.Contains(m.ErrorMessage, "sk-abcdefghijklmnopqrstuvwx") {
+				t.Fatal(m.ErrorMessage)
+			}
+		})
+	}
+	t.Run("錯誤訊息很長:截到 500 字", func(t *testing.T) {
+		client, _ := capture(t, sse(`data: {"error":{"message":"`+strings.Repeat("x", 900)+`"}}`+"\n\n"))
+		m := done(t, run(ctx, cfg(repository.Compat{}), req(), client))
+		if n := len([]rune(m.ErrorMessage)); n > 500 {
+			t.Fatal(n)
+		}
+	})
+}

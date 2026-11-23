@@ -1,4 +1,4 @@
-// Package openai 是 OpenAI 相容 provider(chat/completions 串流),涵蓋 Ollama,含 Apple FM(`fm serve`)相容。
+// Package openai 是 OpenAI 相容 provider(chat/completions 串流),涵蓋 Ollama、MTPLX,含 Apple FM(`fm serve`)相容。
 package openai
 
 import (
@@ -130,6 +130,10 @@ type chunk struct {
 		PromptTokens     float64 `json:"prompt_tokens"`
 		CompletionTokens float64 `json:"completion_tokens"`
 	} `json:"usage"`
+	// Error:有些服務(例如 MTPLX)在 HTTP 200 的串流裡回報錯誤
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 // errText 取出錯誤訊息;*url.Error 只取內層(外層會帶完整 URL,可能含 key)。
@@ -264,6 +268,15 @@ func (p *Provider) Stream(ctx context.Context, req usecase.LLMRequest) iter.Seq[
 			}
 			if j.Usage != nil {
 				usage = &entity.Usage{Input: int(j.Usage.PromptTokens), Output: int(j.Usage.CompletionTokens)}
+			}
+			if j.Error != nil || (len(j.Choices) > 0 && j.Choices[0].FinishReason != nil && *j.Choices[0].FinishReason == "error") {
+				msg := "error"
+				if j.Error != nil && j.Error.Message != "" {
+					msg = j.Error.Message
+				}
+				// 先遮再截:先截可能把秘密切成短於規則門檻的半截
+				fail(entity.SliceUTF16(repository.RedactKey(msg, p.cfg.APIKey), 500))
+				return
 			}
 			if len(j.Choices) == 0 {
 				continue

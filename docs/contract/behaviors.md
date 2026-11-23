@@ -47,6 +47,10 @@
 
 - `local-provider-loopback-only`：`Privacy: local` 的 provider 只能連 loopback，`CreateProvider` 與撥號時都檢查；privacy 值無法辨識一律當 remote
 
+## provider 串流錯誤（provider-stream-error）
+
+- `provider-stream-error`：OpenAI 相容串流中途回報錯誤（頂層 `error` 或 `finish_reason: "error"`）時，回覆以 `error` 結束並帶錯誤訊息，不當成空的正常回答
+
 ## 系統提示詞外洩（output-prompt-leak）
 
 - `output-prompt-leak-block`：訊息含系統提示詞的連續 20 字片段時整則攔下，工具呼叫不執行，這輪以 `blocked` 結束
