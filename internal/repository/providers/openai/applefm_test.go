@@ -52,6 +52,10 @@ func TestFmSchemaAnyOfKeepsType(t *testing.T) {
 		{"外層欄位優先", `{"anyOf":[{"type":"string","description":"inner"},{"type":"null"}],"description":"outer"}`, `{"type":"string","description":"outer"}`},
 		{"任意型別當字串", `{"description":"d"}`, `{"type":"string","description":"d"}`},
 		{"只有 null 也當字串", `{"anyOf":[{"type":"null"}]}`, `{"type":"string"}`},
+		{"數字列舉取 number", `{"enum":[1,2]}`, `{"type":"number","enum":[1,2]}`},
+		{"布林列舉取 boolean", `{"enum":[true,false]}`, `{"type":"boolean","enum":[true,false]}`},
+		{"混合列舉拿掉 enum", `{"enum":["a",1]}`, `{"type":"string"}`},
+		{"數字 const 的 anyOf 取 number", `{"anyOf":[{"const":1},{"const":2}]}`, `{"type":"number","enum":[1,2]}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

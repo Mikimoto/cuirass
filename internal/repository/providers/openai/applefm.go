@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"math"
 	"regexp"
 	"slices"
@@ -17,7 +18,8 @@ import (
 var fmKeep = []string{"type", "enum", "description", "required"}
 
 // fmSchema:fm 拒收 anyOf+const(400)、pattern(500)與沒有 type 的參數(400):只留 allowlist 欄位;
-// anyOf 全 const → string enum;其他 anyOf 取第一個非 null 的選項(例如可空字串 → 字串);仍沒有 type 就給 string。
+// anyOf 全 const → enum;其他 anyOf 取第一個非 null 的選項(例如可空字串 → 字串);
+// 仍沒有 type 就依 enum 值推(數字 → number、布林 → boolean),推不出就拿掉 enum、給 string。
 // 送 fm 的 schema 只是提示,參數驗證仍用原 schema。schema 是 JSON 解碼後的值(map[string]any / []any …)。
 func fmSchema(schema any) any {
 	s, ok := schema.(map[string]any)
@@ -48,8 +50,8 @@ func fmSchema(schema any) any {
 			}
 			enum = append(enum, c)
 		}
-		if enum != nil {
-			out["type"], out["enum"] = "string", enum
+		if enum != nil { // 型別由下面的 fallback 依列舉值決定
+			out = map[string]any{"enum": enum}
 		}
 	}
 	for _, k := range fmKeep {
@@ -67,10 +69,41 @@ func fmSchema(schema any) any {
 	if items, ok := s["items"]; ok {
 		out["items"] = fmSchema(items)
 	}
-	if out["type"] == nil { // 任意型別({}、只有 null):fm 一定要 type,給字串當提示
-		out["type"] = "string"
+	if out["type"] == nil { // fm 一定要 type:先照列舉值推,推不出(任意型別、混合列舉)就給字串
+		t := ""
+		if enum, ok := out["enum"].([]any); ok {
+			t = fmEnumType(enum)
+		}
+		if t == "" {
+			delete(out, "enum") // 字串型別配非字串列舉會沒有合法值
+			t = "string"
+		}
+		out["type"] = t
 	}
 	return out
+}
+
+// fmEnumType:列舉值全是同一種純量時回它的 JSON 型別,否則(空、混合、null、陣列、物件)回 ""。
+func fmEnumType(enum []any) string {
+	t := ""
+	for _, v := range enum {
+		var vt string
+		switch v.(type) {
+		case string:
+			vt = "string"
+		case bool:
+			vt = "boolean"
+		case float64, json.Number, int, int64:
+			vt = "number"
+		default:
+			return ""
+		}
+		if t != "" && t != vt {
+			return ""
+		}
+		t = vt
+	}
+	return t
 }
 
 // fmPayload:OpenAI request body → fm 可接受的版本;不改輸入。
