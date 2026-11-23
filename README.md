@@ -9,7 +9,7 @@
 **給開發者**
 
 - 少寫很多程式:agent 迴圈、工具呼叫、串流都寫好了。
-- 換模型只改 provider 設定,工具與規則不用動:Anthropic、OpenAI、Google 的 API,或用 Ollama 跑本機模型(OpenAI 相容介面)。
+- 換模型只改 provider 設定,工具與規則不用動:Anthropic、OpenAI、Google 的 API,或用 Ollama、MTPLX 跑本機模型(OpenAI 相容介面)。
 - 設定錯了當場知道:工具 schema 沒封閉、工具白名單列了沒註冊的工具,`New` 直接回 error,不會等到上線才出事。
 - 依賴很少:只有標準函式庫與 `golang.org/x/text`。
 
@@ -32,7 +32,7 @@ Security usually depends on each developer adding it by hand, and one missed or 
 **For developers**
 
 - Less code to write: the agent loop, tool calls, and streaming are done for you.
-- Switch models by changing the provider config only, without touching tools or rules: Anthropic, OpenAI, and Google APIs, local models through Ollama, or Apple Foundation Models through `fm serve` (both via the OpenAI-compatible API).
+- Switch models by changing the provider config only, without touching tools or rules: Anthropic, OpenAI, and Google APIs, local models through Ollama or MTPLX, or Apple Foundation Models through `fm serve` (all via the OpenAI-compatible API).
 - Mistakes fail fast: an open tool schema, or an allowlisted tool that isn't registered, makes `New` return an error instead of failing in production.
 - Few dependencies: the standard library and `golang.org/x/text`.
 
@@ -139,7 +139,7 @@ go get github.com/Mikimoto/cuirass@vX.Y.Z
 |---|---|
 | `tests/` | 使用者角度的測試,只能用公開 API(`layers_test.go` 會擋 import internal);掃原始碼的守門測試(分層、對外連線、公開 API 形狀) |
 | `tests/internal/<路徑>` | 需要 internal 的外部測試,路徑對應原始碼;`tests/internal/root` 是根套件,透過 `testing.go`(只在 test tag 建置存在)拿未匯出成員 |
-| `example/` | 教學範例,也是測試:`ExampleNew` 與自己寫一個 coding agent(`example/codingagent`) |
+| `example/` | 教學範例,也是測試:`ExampleNew`、自己寫一個 coding agent(`example/codingagent`)、會動手退款但有煞車的客服(`example/refundagent`) |
 
 ### 行為契約(IMP)
 
@@ -264,7 +264,7 @@ err = agent.Prompt(ctx, "2330 現在多少?")
 
 ## 接真的模型
 
-`CreateProvider` 用 `API` 決定走哪一種協定。支援三種,涵蓋下面五類模型:
+`CreateProvider` 用 `API` 決定走哪一種協定。支援三種,涵蓋下面六類模型:
 
 | 模型 | `API` | `BaseURL` | 金鑰 |
 |---|---|---|---|
@@ -272,6 +272,7 @@ err = agent.Prompt(ctx, "2330 現在多少?")
 | OpenAI | `openai-completions` | `https://api.openai.com/v1` | `Authorization: Bearer` |
 | Google Gemini | `google-generative-ai` | `https://generativelanguage.googleapis.com` | `x-goog-api-key` header |
 | Ollama(本機) | `openai-completions` | `http://localhost:11434/v1` | 不需要 |
+| MTPLX(本機,Apple Silicon) | `openai-completions` | `http://127.0.0.1:8000/v1` | 不需要 |
 | Apple Foundation Models(`fm serve`) | `openai-completions` + `Compat.AppleFM` | `http://127.0.0.1:1976/v1` | 不需要 |
 
 `BaseURL` 只寫到上表那一層,framework 會自己接路徑:Anthropic 接 `/v1/messages`,OpenAI 相容接 `/chat/completions`,Gemini 接 `/v1beta/models/<Model>:streamGenerateContent`。所以 OpenAI 相容的 `BaseURL` 要包含 `/v1`。三種都走串流。
@@ -306,6 +307,13 @@ ollama, err := cuirass.CreateProvider(cuirass.ProviderConfig{
 	Name: "ollama", API: "openai-completions", Model: "llama3.1",
 	BaseURL: "http://localhost:11434/v1",
 	Privacy: &local, // 明填 local;不是 loopback 位址時 CreateProvider 會回錯
+}, deps)
+
+// MTPLX:先 `mtplx pull <repo>`,再 `mtplx quickstart --port 8000 --model <repo>` 開 API 服務
+// (`mtplx start` 是互動式設定加聊天介面,會沿用上次的選擇,不一定開 API 服務)。Model 填 `/v1/models` 回的 id
+mtplx, err := cuirass.CreateProvider(cuirass.ProviderConfig{
+	Name: "mtplx", API: "openai-completions", Model: "mtplx-inkling-2-mini-bare-speed",
+	BaseURL: "http://127.0.0.1:8000/v1", Privacy: &local,
 }, deps)
 
 // Apple Foundation Models:先跑 `fm serve`,預設聽 127.0.0.1:1976(`--port` 可改)
@@ -438,7 +446,7 @@ framework 在工具前後替你做的事:
 - `Effects` 照實宣告。會連網的工具不要標成 `EffectsNone`,讀寫檔案的工具不要為了過關改標別的。
 - 不要在工具裡自己用 `net/http` 連網,那樣白名單擋不到。
 
-完整的多工具範例看 `example/codingagent`。
+完整的多工具範例看 `example/codingagent`;用規則、次數上限與稽核管住會動到錢的工具,看 `example/refundagent`。
 
 ## 併發與時序契約(寫 hook 前必讀)
 
