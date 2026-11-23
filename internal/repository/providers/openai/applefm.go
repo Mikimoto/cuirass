@@ -16,8 +16,9 @@ import (
 
 var fmKeep = []string{"type", "enum", "description", "required"}
 
-// fmSchema:fm 拒收 anyOf+const(400)與 pattern(500):只留 allowlist 欄位;anyOf 全 const → string enum。
-// schema 是 JSON 解碼後的值(map[string]any / []any …)。
+// fmSchema:fm 拒收 anyOf+const(400)、pattern(500)與沒有 type 的參數(400):只留 allowlist 欄位;
+// anyOf 全 const → string enum;其他 anyOf 取第一個非 null 的選項(例如可空字串 → 字串);仍沒有 type 就給 string。
+// 送 fm 的 schema 只是提示,參數驗證仍用原 schema。schema 是 JSON 解碼後的值(map[string]any / []any …)。
 func fmSchema(schema any) any {
 	s, ok := schema.(map[string]any)
 	if !ok {
@@ -25,6 +26,14 @@ func fmSchema(schema any) any {
 	}
 	out := map[string]any{}
 	if anyOf, ok := s["anyOf"].([]any); ok && len(anyOf) > 0 {
+		for _, a := range anyOf {
+			if m, ok := a.(map[string]any); ok && m["type"] != "null" {
+				if base, ok := fmSchema(m).(map[string]any); ok {
+					out = base
+				}
+				break
+			}
+		}
 		enum := []any{}
 		for _, a := range anyOf {
 			m, ok := a.(map[string]any)
@@ -57,6 +66,9 @@ func fmSchema(schema any) any {
 	}
 	if items, ok := s["items"]; ok {
 		out["items"] = fmSchema(items)
+	}
+	if out["type"] == nil { // 任意型別({}、只有 null):fm 一定要 type,給字串當提示
+		out["type"] = "string"
 	}
 	return out
 }
