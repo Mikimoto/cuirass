@@ -37,9 +37,48 @@ func TestFmSchema(t *testing.T) {
 	t.Run("schema allowlist", func(t *testing.T) {
 		eq(t, fmSchema(fromJSON(t, fmSchemaIn)), fromJSON(t, fmSchemaClean))
 	})
-	t.Run("items 遞迴、非全 const 的 anyOf 拿掉", func(t *testing.T) {
+	t.Run("items 遞迴", func(t *testing.T) {
 		eq(t, fmSchema(fromJSON(t, `{"type":"array","items":{"type":"string","pattern":"x"},"maxItems":3}`)), fromJSON(t, `{"type":"array","items":{"type":"string"}}`))
-		eq(t, fmSchema(fromJSON(t, `{"anyOf":[{"type":"string"},{"type":"number"}],"description":"d"}`)), fromJSON(t, `{"description":"d"}`))
+	})
+}
+
+// fm 拒收沒有 type 的參數(整個請求 400),所以非全 const 的 anyOf 要留一個型別。
+func TestFmSchemaAnyOfKeepsType(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"可空字串取字串", `{"anyOf":[{"type":"string"},{"type":"null"}]}`, `{"type":"string"}`},
+		{"null 在前也跳過", `{"anyOf":[{"type":"null"},{"type":"integer","minimum":1}],"description":"d"}`, `{"type":"integer","description":"d"}`},
+		{"多種型別取第一個", `{"anyOf":[{"type":"string"},{"type":"number"}],"description":"d"}`, `{"type":"string","description":"d"}`},
+		{"可空陣列遞迴", `{"anyOf":[{"type":"array","items":{"type":"string","pattern":"x"}},{"type":"null"}]}`, `{"type":"array","items":{"type":"string"}}`},
+		{"外層欄位優先", `{"anyOf":[{"type":"string","description":"inner"},{"type":"null"}],"description":"outer"}`, `{"type":"string","description":"outer"}`},
+		{"任意型別當字串", `{"description":"d"}`, `{"type":"string","description":"d"}`},
+		{"只有 null 也當字串", `{"anyOf":[{"type":"null"}]}`, `{"type":"string"}`},
+		{"數字列舉取 number", `{"enum":[1,2]}`, `{"type":"number","enum":[1,2]}`},
+		{"布林列舉取 boolean", `{"enum":[true,false]}`, `{"type":"boolean","enum":[true,false]}`},
+		{"混合列舉拿掉 enum", `{"enum":["a",1]}`, `{"type":"string"}`},
+		{"數字 const 的 anyOf 取 number", `{"anyOf":[{"const":1},{"const":2}]}`, `{"type":"number","enum":[1,2]}`},
+		{"分支型別和外層 enum 衝突就拿掉 enum", `{"anyOf":[{"type":"string"},{"type":"number"}],"enum":[1,2]}`, `{"type":"string"}`},
+		{"外層型別和分支 enum 衝突就拿掉 enum", `{"type":"number","anyOf":[{"type":"string","enum":["a"]}]}`, `{"type":"number"}`},
+		{"integer 和數字 enum 相容", `{"type":"integer","enum":[1,2]}`, `{"type":"integer","enum":[1,2]}`},
+		{"明寫的型別和 enum 衝突也拿掉", `{"type":"string","enum":[1,2]}`, `{"type":"string"}`},
+		{"可為 null 的 enum 只拿掉 null", `{"type":"string","enum":["a","b",null]}`, `{"type":"string","enum":["a","b"]}`},
+		{"分支的可為 null enum 也保留合法值", `{"anyOf":[{"type":"string","enum":["a",null]},{"type":"null"}]}`, `{"type":"string","enum":["a"]}`},
+		{"空 enum 拿掉", `{"type":"string","enum":[]}`, `{"type":"string"}`},
+		{"整數型別濾掉小數列舉", `{"anyOf":[{"type":"integer"},{"type":"number"}],"enum":[1.5]}`, `{"type":"integer"}`},
+		{"整數型別只留整數值", `{"type":"integer","enum":[1,1.5,2.0]}`, `{"type":"integer","enum":[1,2]}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			eq(t, fmSchema(fromJSON(t, c.in)), fromJSON(t, c.want))
+		})
+	}
+	t.Run("工具參數每個欄位都有 type", func(t *testing.T) {
+		in := `{"type":"object","properties":{"board":{"anyOf":[{"type":"string"},{"type":"null"}]},"limit":{"anyOf":[{"type":"number"},{"type":"string"},{"type":"null"}]},"value":{}}}`
+		props := fmSchema(fromJSON(t, in)).(map[string]any)["properties"].(map[string]any)
+		for k, v := range props {
+			if v.(map[string]any)["type"] == nil {
+				t.Errorf("%s 沒有 type:%v", k, v)
+			}
+		}
 	})
 }
 
