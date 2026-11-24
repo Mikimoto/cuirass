@@ -63,6 +63,8 @@ func TestFmSchemaAnyOfKeepsType(t *testing.T) {
 		{"可為 null 的 enum 只拿掉 null", `{"type":"string","enum":["a","b",null]}`, `{"type":"string","enum":["a","b"]}`},
 		{"分支的可為 null enum 也保留合法值", `{"anyOf":[{"type":"string","enum":["a",null]},{"type":"null"}]}`, `{"type":"string","enum":["a"]}`},
 		{"空 enum 拿掉", `{"type":"string","enum":[]}`, `{"type":"string"}`},
+		{"整數型別濾掉小數列舉", `{"anyOf":[{"type":"integer"},{"type":"number"}],"enum":[1.5]}`, `{"type":"integer"}`},
+		{"整數型別只留整數值", `{"type":"integer","enum":[1,1.5,2.0]}`, `{"type":"integer","enum":[1,2]}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
