@@ -20,7 +20,7 @@ var fmKeep = []string{"type", "enum", "description", "required"}
 // fmSchema:fm 拒收 anyOf+const(400)、pattern(500)與沒有 type 的參數(400):只留 allowlist 欄位;
 // anyOf 全 const → enum;其他 anyOf 取第一個非 null 的選項(例如可空字串 → 字串);
 // 仍沒有 type 就依 enum 值推(數字 → number、布林 → boolean),推不出就拿掉 enum、給 string。
-// 已有 type 但和 enum 值的型別衝突(integer 算 number)時拿掉 enum。
+// 已有 type 時 enum 只留型別相容的值(integer 算 number),一個都不剩就拿掉 enum。
 // 送 fm 的 schema 只是提示,參數驗證仍用原 schema。schema 是 JSON 解碼後的值(map[string]any / []any …)。
 func fmSchema(schema any) any {
 	s, ok := schema.(map[string]any)
@@ -70,11 +70,20 @@ func fmSchema(schema any) any {
 	if items, ok := s["items"]; ok {
 		out["items"] = fmSchema(items)
 	}
-	// 合併分支與外層欄位後,type 和 enum 可能來自不同地方而互相矛盾(沒有合法值):這時拿掉 enum。
+	// 合併分支與外層欄位後,type 和 enum 可能來自不同地方:只留和 type 相容的值(integer 配數字算相容,
+	// null 等其他值拿掉);一個都不剩就沒有合法值,拿掉 enum。
 	if t, ok := out["type"].(string); ok {
 		if enum, ok := out["enum"].([]any); ok {
-			if et := fmEnumType(enum); et == "" || (t != et && !(t == "integer" && et == "number")) {
+			kept := []any{}
+			for _, v := range enum {
+				if et := fmEnumType([]any{v}); et != "" && (et == t || t == "integer" && et == "number") {
+					kept = append(kept, v)
+				}
+			}
+			if len(kept) == 0 {
 				delete(out, "enum")
+			} else {
+				out["enum"] = kept
 			}
 		}
 	}
