@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"math"
 	"regexp"
 	"slices"
@@ -16,8 +17,11 @@ import (
 
 var fmKeep = []string{"type", "enum", "description", "required"}
 
-// fmSchema:fm 拒收 anyOf+const(400)與 pattern(500):只留 allowlist 欄位;anyOf 全 const → string enum。
-// schema 是 JSON 解碼後的值(map[string]any / []any …)。
+// fmSchema:fm 拒收 anyOf+const(400)、pattern(500)與沒有 type 的參數(400):只留 allowlist 欄位;
+// anyOf 全 const → enum;其他 anyOf 取第一個非 null 的選項(例如可空字串 → 字串);
+// 仍沒有 type 就依 enum 值推(數字 → number、布林 → boolean),推不出就拿掉 enum、給 string。
+// 已有 type 時 enum 只留型別相容的值(integer 只留整數值),一個都不剩就拿掉 enum。
+// 送 fm 的 schema 只是提示,參數驗證仍用原 schema。schema 是 JSON 解碼後的值(map[string]any / []any …)。
 func fmSchema(schema any) any {
 	s, ok := schema.(map[string]any)
 	if !ok {
@@ -25,6 +29,14 @@ func fmSchema(schema any) any {
 	}
 	out := map[string]any{}
 	if anyOf, ok := s["anyOf"].([]any); ok && len(anyOf) > 0 {
+		for _, a := range anyOf {
+			if m, ok := a.(map[string]any); ok && m["type"] != "null" {
+				if base, ok := fmSchema(m).(map[string]any); ok {
+					out = base
+				}
+				break
+			}
+		}
 		enum := []any{}
 		for _, a := range anyOf {
 			m, ok := a.(map[string]any)
@@ -39,8 +51,8 @@ func fmSchema(schema any) any {
 			}
 			enum = append(enum, c)
 		}
-		if enum != nil {
-			out["type"], out["enum"] = "string", enum
+		if enum != nil { // 型別由下面的 fallback 依列舉值決定
+			out = map[string]any{"enum": enum}
 		}
 	}
 	for _, k := range fmKeep {
@@ -58,7 +70,72 @@ func fmSchema(schema any) any {
 	if items, ok := s["items"]; ok {
 		out["items"] = fmSchema(items)
 	}
+	// 合併分支與外層欄位後,type 和 enum 可能來自不同地方:只留和 type 相容的值(integer 只留整數值,
+	// null 等其他值拿掉);一個都不剩就沒有合法值,拿掉 enum。
+	if t, ok := out["type"].(string); ok {
+		if enum, ok := out["enum"].([]any); ok {
+			kept := []any{}
+			for _, v := range enum {
+				if et := fmEnumType([]any{v}); et != "" && (et == t || t == "integer" && et == "number" && fmIsInt(v)) {
+					kept = append(kept, v)
+				}
+			}
+			if len(kept) == 0 {
+				delete(out, "enum")
+			} else {
+				out["enum"] = kept
+			}
+		}
+	}
+	if out["type"] == nil { // fm 一定要 type:先照列舉值推,推不出(任意型別、混合列舉)就給字串
+		t := ""
+		if enum, ok := out["enum"].([]any); ok {
+			t = fmEnumType(enum)
+		}
+		if t == "" {
+			delete(out, "enum") // 字串型別配非字串列舉會沒有合法值
+			t = "string"
+		}
+		out["type"] = t
+	}
 	return out
+}
+
+// fmIsInt:數字是否為整數值(2.0 算,1.5 不算)。
+func fmIsInt(v any) bool {
+	switch n := v.(type) {
+	case float64:
+		return n == math.Trunc(n)
+	case json.Number:
+		f, err := n.Float64()
+		return err == nil && f == math.Trunc(f)
+	case int, int64:
+		return true
+	}
+	return false
+}
+
+// fmEnumType:列舉值全是同一種純量時回它的 JSON 型別,否則(空、混合、null、陣列、物件)回 ""。
+func fmEnumType(enum []any) string {
+	t := ""
+	for _, v := range enum {
+		var vt string
+		switch v.(type) {
+		case string:
+			vt = "string"
+		case bool:
+			vt = "boolean"
+		case float64, json.Number, int, int64:
+			vt = "number"
+		default:
+			return ""
+		}
+		if t != "" && t != vt {
+			return ""
+		}
+		t = vt
+	}
+	return t
 }
 
 // fmPayload:OpenAI request body → fm 可接受的版本;不改輸入。

@@ -51,6 +51,10 @@
 
 - `provider-stream-error`：OpenAI 相容串流中途回報錯誤（頂層 `error` 或 `finish_reason: "error"`）時，回覆以 `error` 結束並帶錯誤訊息，不當成空的正常回答
 
+## Apple fm 工具參數（provider-applefm-schema）
+
+- `provider-applefm-schema`：`Compat.AppleFM` 送出的工具參數每個欄位都有型別；可空欄位取非 null 的型別，參數驗證仍用原 schema
+
 ## 系統提示詞外洩（output-prompt-leak）
 
 - `output-prompt-leak-block`：訊息含系統提示詞的連續 20 字片段時整則攔下，工具呼叫不執行，這輪以 `blocked` 結束
